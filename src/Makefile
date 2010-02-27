@@ -361,6 +361,10 @@ endif
 # Files and pathnames.
 ##############################################################################
 
+prefix ?= /usr/local
+libdir := $(prefix)/lib
+includedir := $(prefix)/include
+
 MINILUA_O= host/minilua.o
 MINILUA_LIBS= -lm
 MINILUA_T= host/minilua
@@ -469,6 +473,9 @@ LJCORE_O= lj_gc.o lj_err.o lj_char.o lj_bc.o lj_obj.o \
 	  lj_lib.o lj_alloc.o lib_aux.o \
 	  $(LJLIB_O) lib_init.o
 
+HEADERS := lua.h luaconf.h lualib.h lauxlib.h
+HEADERS_INST := $(patsubst %,$(includedir)/%,$(HEADERS))
+
 LJVMCORE_O= $(LJVM_O) $(LJCORE_O)
 LJVMCORE_DYNO= $(LJVMCORE_O:.o=_dyn.o)
 
@@ -561,23 +568,37 @@ endif
 endif
 endif
 
-Q= @
-E= @echo
-#Q=
-#E= @:
+ifneq ($(findstring $(MAKEFLAGS),s),s)
+ifndef V
+	QUIET_CC       = @echo '   ' CC $@;
+	QUIET_ASM      = @echo '   ' ASM $@;
+	QUIET_LINK     = @echo '   ' LINK $@;
+	QUIET_HOSTCC   = @echo '   ' HOSTCC $@;
+	QUIET_DYNCC    = @echo '   ' DYNCC $@;
+	QUIET_DYNLINK  = @echo '   ' DYNLINK $@;
+	QUIET_DYNASM   = @echo '   ' DYNASM $@;
+	QUIET_BUILDVM  = @echo '   ' BUILDVM $@;
+	QUIET_HOSTLINK = @echo '   ' HOSTLINK $@;
+	QUIET_AR       = @echo '   ' AR $@;
+	QUIET_STRIP    = @echo '   ' STRIP $@;
+	QUIET_RANLIB   = @echo '   ' RANLIB $@;
+	QUIET_INSTALL  = @echo '   ' INSTALL $<;
+	export V
+endif
+endif
 
 ##############################################################################
 # Make targets.
 ##############################################################################
 
-default all:	$(TARGET_T)
+default all:	$(LUAJIT_A)
 
 amalg:
 	@grep "^[+|]" ljamalg.c
 	$(MAKE) all "LJCORE_O=ljamalg.o"
 
 clean:
-	$(HOST_RM) $(ALL_RM)
+	$(HOST_RM) $(ALL_RM) .cflags
 
 depend:
 	@for file in $(ALL_HDRGEN); do \
@@ -593,75 +614,88 @@ depend:
 	  test -s $$file || $(HOST_RM) $$file; \
 	  done
 
-.PHONY: default all amalg clean depend
+$(includedir)/%.h: %.h
+	@mkdir -p $(includedir)
+	$(QUIET_INSTALL)cp $< $@
+	@chmod 0644 $@
+
+$(libdir)/%.a: %.a
+	@mkdir -p $(libdir)
+	$(QUIET_INSTALL)cp $< $@
+	@chmod 0644 $@
+
+install: $(HEADERS_INST) $(libdir)/$(LUAJIT_A)
+
+.PHONY: default all amalg clean depend install
 
 ##############################################################################
 # Rules for generated files.
 ##############################################################################
 
 $(MINILUA_T): $(MINILUA_O)
-	$(E) "HOSTLINK  $@"
-	$(Q)$(HOST_CC) $(HOST_ALDFLAGS) -o $@ $(MINILUA_O) $(MINILUA_LIBS) $(HOST_ALIBS)
+	$(QUIET_HOSTCC)$(HOST_CC) $(HOST_ALDFLAGS) -o $@ $(MINILUA_O) $(MINILUA_LIBS) $(HOST_ALIBS)
 
 host/buildvm_arch.h: $(DASM_DASC) $(DASM_DEP)
-	$(E) "DYNASM    $@"
-	$(Q)$(DASM) $(DASM_FLAGS) -o $@ $(DASM_DASC)
+	$(QUIET_DYNASM)$(DASM) $(DASM_FLAGS) -o $@ $(DASM_DASC)
 
 host/buildvm.o: $(DASM_DIR)/dasm_*.h
 
 $(BUILDVM_T): $(BUILDVM_O)
-	$(E) "HOSTLINK  $@"
-	$(Q)$(HOST_CC) $(HOST_ALDFLAGS) -o $@ $(BUILDVM_O) $(HOST_ALIBS)
+	$(QUIET_HOSTLINK)$(HOST_CC) $(HOST_ALDFLAGS) -o $@ $(BUILDVM_O) $(HOST_ALIBS)
 
 $(LJVM_BOUT): $(BUILDVM_T)
-	$(E) "BUILDVM   $@"
-	$(Q)$(BUILDVM_X) -m $(LJVM_MODE) -o $@
+	$(QUIET_BUILDVM)$(BUILDVM_X) -m $(LJVM_MODE) -o $@
 
 lj_bcdef.h: $(BUILDVM_T) $(LJLIB_C)
-	$(E) "BUILDVM   $@"
-	$(Q)$(BUILDVM_X) -m bcdef -o $@ $(LJLIB_C)
+	$(QUIET_BUILDVM)$(BUILDVM_X) -m bcdef -o $@ $(LJLIB_C)
 
 lj_ffdef.h: $(BUILDVM_T) $(LJLIB_C)
-	$(E) "BUILDVM   $@"
-	$(Q)$(BUILDVM_X) -m ffdef -o $@ $(LJLIB_C)
+	$(QUIET_BUILDVM)$(BUILDVM_X) -m ffdef -o $@ $(LJLIB_C)
 
 lj_libdef.h: $(BUILDVM_T) $(LJLIB_C)
-	$(E) "BUILDVM   $@"
-	$(Q)$(BUILDVM_X) -m libdef -o $@ $(LJLIB_C)
+	$(QUIET_BUILDVM)$(BUILDVM_X) -m libdef -o $@ $(LJLIB_C)
 
 lj_recdef.h: $(BUILDVM_T) $(LJLIB_C)
-	$(E) "BUILDVM   $@"
-	$(Q)$(BUILDVM_X) -m recdef -o $@ $(LJLIB_C)
+	$(QUIET_BUILDVM)$(BUILDVM_X) -m recdef -o $@ $(LJLIB_C)
 
 $(LIB_VMDEF): $(BUILDVM_T) $(LJLIB_C)
-	$(E) "BUILDVM   $@"
-	$(Q)$(BUILDVM_X) -m vmdef -o $(LIB_VMDEFP) $(LJLIB_C)
+	$(QUIET_BUILDVM)$(BUILDVM_X) -m vmdef -o $(LIB_VMDEFP) $(LJLIB_C)
 
 lj_folddef.h: $(BUILDVM_T) lj_opt_fold.c
-	$(E) "BUILDVM   $@"
-	$(Q)$(BUILDVM_X) -m folddef -o $@ lj_opt_fold.c
+	$(QUIET_BUILDVM)$(BUILDVM_X) -m folddef -o $@ lj_opt_fold.c
 
 ##############################################################################
 # Object file rules.
 ##############################################################################
 
-%.o: %.c
-	$(E) "CC        $@"
-	$(Q)$(TARGET_DYNCC) $(TARGET_ACFLAGS) -c -o $(@:.o=_dyn.o) $<
-	$(Q)$(TARGET_CC) $(TARGET_ACFLAGS) -c -o $@ $<
+%_dyn.o: %.c .cflags
+	$(QUIET_DYNCC)$(TARGET_DYNCC) $(TARGET_ACFLAGS) -c -o $@ $<
 
-%.o: %.s
-	$(E) "ASM       $@"
-	$(Q)$(TARGET_DYNCC) $(TARGET_ACFLAGS) -c -o $(@:.o=_dyn.o) $<
-	$(Q)$(TARGET_CC) $(TARGET_ACFLAGS) -c -o $@ $<
+%.o: %.c .cflags
+	$(QUIET_CC)$(TARGET_CC) $(TARGET_ACFLAGS) -c -o $@ $<
+
+%_dyn.o: %.s .cflags
+	$(QUIET_DYNASM)$(TARGET_DYNCC) $(TARGET_ACFLAGS) -c -o $@ $<
+
+%.o: %.s .cflags
+	$(QUIET_ASM)$(TARGET_CC) $(TARGET_ACFLAGS) -c -o $@ $<
 
 $(LUAJIT_O):
-	$(E) "CC        $@"
-	$(Q)$(TARGET_STCC) $(TARGET_ACFLAGS) -c -o $@ $<
+	$(QUIET_CC)$(TARGET_STCC) $(TARGET_ACFLAGS) -c -o $@ $<
 
-$(HOST_O): %.o: %.c
-	$(E) "HOSTCC    $@"
-	$(Q)$(HOST_CC) $(HOST_ACFLAGS) -c -o $@ $<
+$(HOST_O): %.o: %.c .cflags
+	$(QUIET_HOSTCC)$(HOST_CC) $(HOST_ACFLAGS) -c -o $@ $<
+
+TRACK_CFLAGS = $(subst ','\'',$(HOST_CC) $(TARGET_CC) $(HOST_ACFLAGS) $(TARGET_ACFLAGS) $(TARGET_ASHLDFLAGS) $(TARGET_LD) $(TARGET_ALDFLAGS))
+
+.cflags: .force-cflags
+	@FLAGS='$(TRACK_CFLAGS)'; \
+    if test x"$$FLAGS" != x"`cat .cflags 2>/dev/null`" ; then \
+        echo "    * rebuilding luajit: new build flags or prefix"; \
+        echo "$$FLAGS" > .cflags; \
+    fi
+
+.PHONY: .force-cflags
 
 include Makefile.dep
 
@@ -670,19 +704,16 @@ include Makefile.dep
 ##############################################################################
 
 $(LUAJIT_A): $(LJVMCORE_O)
-	$(E) "AR        $@"
-	$(Q)$(TARGET_AR) $@ $(LJVMCORE_O)
+	@$(HOST_RM) $@
+	$(QUIET_AR)$(TARGET_AR) $@ $(LJVMCORE_O)
 
 # The dependency on _O, but linking with _DYNO is intentional.
 $(LUAJIT_SO): $(LJVMCORE_O)
-	$(E) "DYNLINK   $@"
-	$(Q)$(TARGET_LD) $(TARGET_ASHLDFLAGS) -o $@ $(LJVMCORE_DYNO) $(TARGET_ALIBS)
-	$(Q)$(TARGET_STRIP) $@
+	$(QUIET_DYNLINK)$(TARGET_LD) $(TARGET_ASHLDFLAGS) -o $@ $(LJVMCORE_DYNO) $(TARGET_ALIBS)
+	$(QUIET_STRIP)$(TARGET_STRIP) $@
 
 $(LUAJIT_T): $(TARGET_O) $(LUAJIT_O) $(TARGET_DEP)
-	$(E) "LINK      $@"
-	$(Q)$(TARGET_LD) $(TARGET_ALDFLAGS) -o $@ $(LUAJIT_O) $(TARGET_O) $(TARGET_ALIBS)
-	$(Q)$(TARGET_STRIP) $@
-	$(E) "OK        Successfully built LuaJIT"
+	$(QUIET_LINK)$(TARGET_LD) $(TARGET_ALDFLAGS) -o $@ $(LUAJIT_O) $(TARGET_O) $(TARGET_ALIBS)
+	$(QUIET_STRIP)$(TARGET_STRIP) $@
 
 ##############################################################################
